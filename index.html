@@ -102,6 +102,9 @@ h1{text-align:center;color:var(--accent);font-size:1.8rem;margin-bottom:6px;lett
 .bridge-note{font-size:.75rem;color:var(--text2);line-height:1.4;font-style:italic}
 .key-badge{display:inline-block;background:#2a2040;border:1px solid #5a4080;border-radius:6px;padding:3px 10px;font-size:.78rem;color:#b898e0;margin-bottom:12px}
 .error{background:#2a1010;border:1px solid #551111;border-radius:8px;padding:12px 16px;color:#ff9999;margin-top:10px}
+.results-nav{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.results-nav a{color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:5px 14px;font-size:.8rem;text-decoration:none;letter-spacing:.5px}
+.results-nav a:hover{color:var(--accent);border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -372,15 +375,15 @@ function psharp(pc){return[7,2,9,4,11,6,1].includes(pc);}
 function nname(pc,sh){return sh?SH[pc]:FL[pc];}
 
 function buildScaleNotes(rootPC,sc,transp,ush){
-  const notes=[];let prevSP=null;
+  const notes=[];let prevDP=null,oct=4;
   [...sc.i,12].forEach(iv=>{
     const wpc=((rootPC+transp+iv)%12+12)%12;
     const nm=nname(wpc,ush);
     const dp=DIATONIC_POS[nm[0]];
-    let oct=4,sp=(oct-4)*7+dp;
-    if(prevSP===null){oct=dp<=1?5:4;sp=(oct-4)*7+dp;}
-    else{oct=4;sp=dp;while(sp<=prevSP){oct++;sp=(oct-4)*7+dp;}}
-    notes.push({wpc,nm,dp,oct,sp});prevSP=sp;
+    if(prevDP===null){oct=4;}
+    else if(dp<prevDP){oct++;}
+    const sp=(oct-4)*7+dp;
+    notes.push({wpc,nm,dp,oct,sp});prevDP=dp;
   });
   return notes;
 }
@@ -391,8 +394,14 @@ function drawStaff(rootPC,scaleName,saxType){
   const wroot=((rootPC+transp)%12+12)%12;
   const ush=psharp(wroot);
   const notes=buildScaleNotes(rootPC,sc,transp,ush);
-  const ns=46,mL=52,W=mL+notes.length*ns+16,H=150;
-  const E4Y=88,hsp=6,ny=sp=>E4Y-(sp-2)*hsp;
+  const ns=46,mL=52,hsp=6;
+  const W=mL+notes.length*ns+16;
+  const maxSP=Math.max(...notes.map(n=>n.sp));
+  const minSP=Math.min(...notes.map(n=>n.sp));
+  const topRoom=36+Math.max(0,maxSP-10)*hsp;
+  const E4Y=topRoom+(maxSP-2)*hsp;
+  const H=E4Y-(minSP-2)*hsp+36;
+  const ny=sp=>E4Y-(sp-2)*hsp;
   let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
   s+=`<rect width="${W}" height="${H}" fill="#f8f6ef" rx="5"/>`;
   // staff lines: E4(sp2) G4(sp4) B4(sp6) D5(sp8) F5(sp10)
@@ -544,11 +553,14 @@ function renderScalesSection(ci){
     <span class="selected-scale-title">${chord.root} ${sel}</span>
     <button class="sax-btn${sax==='alto'?' active':''}" onclick="toggleSax(${ci},'alto')">🎷 Alto Sax</button>
     <button class="sax-btn${sax==='tenor'?' active':''}" onclick="toggleSax(${ci},'tenor')">🎷 Tenor Sax</button>
-  </div><div class="positions-grid">`;
-  pos.forEach((sf,pi)=>{
-    h+=`<div class="pos-card"><div class="pos-label">${lbs[pi]||'Pos.'+(pi+1)}</div>${drawScaleFB(fretNotes(chord.pc,sel,sf),sf)}</div>`;
-  });
-  h+='</div>';
+  </div>`;
+  if(!sax){
+    h+=`<div class="positions-grid">`;
+    pos.forEach((sf,pi)=>{
+      h+=`<div class="pos-card"><div class="pos-label">${lbs[pi]||'Pos.'+(pi+1)}</div>${drawScaleFB(fretNotes(chord.pc,sel,sf),sf)}</div>`;
+    });
+    h+=`</div>`;
+  }
   if(sax){
     h+=`<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
       <div class="pos-label" style="margin-bottom:8px">${saxLabel} — geschreven in ${wroot} (klinkt in ${chord.root})</div>
@@ -599,7 +611,7 @@ function renderSavedRow(){
   const list=document.getElementById('saved-list');
   if(!saved.length){row.style.display='none';return;}
   row.style.display='flex';
-  list.innerHTML=saved.map((p,i)=>`<div class="saved-item"><button class="saved-load" onclick="set(${JSON.stringify(p)})">${p}</button><button class="saved-del" onclick="deleteSaved(${i})" title="Verwijder">×</button></div>`).join('');
+  list.innerHTML=saved.map((p,i)=>`<div class="saved-item"><button class="saved-load" onclick="set('${p.replace(/'/g,"\\'")}')">${p}</button><button class="saved-del" onclick="deleteSaved(${i})" title="Verwijder">×</button></div>`).join('');
 }
 
 function go(){
@@ -612,23 +624,32 @@ function go(){
   saveProgression(inp.trim());
 
   const key=detectKey(currentChords);
-  let h='<div class="prog-bar"><div class="prog-bar-label">Schema</div><div class="measures">';
+  const hasBridge=getBridges(key).length>0;
+  let h=`<div class="results-nav">
+    <a href="#sec-akkoorden">↓ Akkoorden</a>
+    <a href="#sec-transitions">↓ Transitions</a>
+    <a href="#sec-ladders">↓ Ladders</a>${hasBridge?'<a href="#sec-bridge">↓ Brug-ideeën</a>':''}
+  </div>`;
+  h+='<div class="prog-bar"><div class="prog-bar-label">Schema</div><div class="measures">';
   currentChords.forEach(c=>{h+=`<div class="measure"><span class="rb-chord">${toRB(c)}</span></div>`;});
   h+='</div></div>';
 
   currentChords.forEach((chord,ci)=>{
     const subList=getSubs(chord);
-    h+=`<div class="chord-section">
+    const anchorAkk=ci===0?'id="sec-akkoorden"':'';
+    const anchorSub=ci===0?'id="sec-transitions"':'';
+    const anchorLad=ci===0?'id="sec-ladders"':'';
+    h+=`<div class="chord-section" ${anchorAkk}>
       <div class="chord-header" onclick="toggleVoicings(${ci})">
         <span class="chord-name-rb">${toRB(chord)}</span>
         <span class="chord-fn">${FN[chord.type]||chord.type}</span>
         <span class="voicing-toggle" id="vtog-${ci}">▼ Toon voicings</span>
       </div>
       <div id="voicings-${ci}"></div>
-      <div class="sec-label">Aanbevolen ladders</div>
+      <div class="sec-label" ${anchorLad}>Aanbevolen ladders</div>
       <div id="scales-${ci}">${renderScalesSection(ci)}</div>`;
     if(subList.length){
-      h+='<div class="sec-label">Akkoordvervangingen &amp; technieken</div><div class="subs-grid">';
+      h+=`<div class="sec-label" ${anchorSub}>Akkoordvervangingen &amp; technieken</div><div class="subs-grid">`;
       subList.forEach(sb=>{h+=`<div class="sub-card"><div class="sub-type">${sb.t}</div><div class="sub-chord">${sb.c}</div><div class="sub-desc">${sb.d}</div></div>`;});
       h+='</div>';
     }
@@ -638,7 +659,7 @@ function go(){
   const bridges=getBridges(key);
   if(bridges.length){
     const ql=key.quality==='major'?'majeur':'minor';
-    h+=`<div class="bridge-section"><div class="bridge-title">Brug-suggesties</div>
+    h+=`<div class="bridge-section" id="sec-bridge"><div class="bridge-title">Brug-suggesties</div>
       <div class="bridge-subtitle">Toonsoort: <span class="key-badge">${key.name} ${ql}</span></div>
       <div class="bridge-cards">`;
     bridges.forEach(b=>{
@@ -652,6 +673,7 @@ function go(){
   document.getElementById('results').innerHTML=h;
 }
 function set(p){document.getElementById('progression').value=p;go();}
+
 renderSavedRow();
 </script>
 </body>
